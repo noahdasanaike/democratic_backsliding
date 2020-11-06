@@ -81,97 +81,23 @@ v1 <- matrix(udv$v[,1], ncol = 1); e1 <- eui_matrix%*%v1 * -1
 
 eui_subset$index <- e1
 
-#################
-# Precalculate
+min = min(eui_subset$index)
+max = max(eui_subset$index)
 
-# years = paste(unique(eui_subset$year))
+eui_subset <- eui_subset %>%
+    rowwise() %>%
+    mutate(standard = (index - min) / (max - min)) %>%
+    mutate(year = as.numeric(year))
 
-# precalculated = tibble(year_one = 0, year_two = 0, year_one_index = 0,
-#                        year_two_index = 0, year_one_mean = 0, year_two_mean = 0,
-#                        height_one = 0, height_two = 0)
-# 
-# for (i in 1:length(years)){
-#     for (y in 1:length(years)){
-#         if (!(years[y] == years[i])){
-#             insert_vector = NULL
-#             
-#             min_year = as.character(min(as.numeric(years[y]), as.numeric(years[i])))
-#             max_year = as.character(min(as.numeric(years[y]), as.numeric(years[i])))
-#             
-#             
-#             diff <- eui_subset %>%
-#                 filter(year %in% c(paste(unlist(min_year)), paste(unlist(max_year))))
-#             
-#             # year one is later year
-#             # year two is earlier year
-#             
-#             min = min(diff$index)
-#             max = max(diff$index)
-#             
-#             diff_one <- diff %>%
-#                 filter(year %in% c(paste(unlist(max_year)))) %>%
-#                 rowwise() %>%
-#                 mutate(standard = (index - min) / (max - min)) %>%
-#                 bootstraps(times = 1000) %>%
-#                 mutate(boot = map(splits, ~ analysis(.))) %>%
-#                 mutate(standard = map(boot, ~ pull(., standard))) %>% 
-#                 mutate(index_mean = map_dbl(standard, ~ mean(.)))
-#             
-#             year_one <- stan_glm(data = diff_one, 
-#                                  index_mean ~ 1, 
-#                                  family = gaussian(), 
-#                                  refresh = 0)
-#             
-#             diff_two <- diff %>%
-#                 filter(year %in% c(paste(unlist(min_year)))) %>%
-#                 rowwise() %>%
-#                 mutate(standard = (index - min) / (max - min)) %>%
-#                 bootstraps(times = 1000) %>%
-#                 mutate(boot = map(splits, ~ analysis(.))) %>%
-#                 mutate(standard = map(boot, ~ pull(., standard))) %>% 
-#                 mutate(index_mean = map_dbl(standard, ~ mean(.)))
-#             
-#             year_two <- stan_glm(data = diff_two, 
-#                                  index_mean ~ 1, 
-#                                  family = gaussian(), 
-#                                  refresh = 0)
-#             
-#             year_one <- year_one %>%
-#                 as_tibble() %>%
-#                 select(-sigma) %>%
-#                 rename(index = `(Intercept)`)
-#             
-#             year_two <- year_two %>%
-#                 as_tibble() %>%
-#                 select(-sigma) %>%
-#                 rename(index = `(Intercept)`)
-#             
-#             year_one_mean = mean(year_one$index)
-#             year_two_mean = mean(year_two$index)
-#             
-#             height_one = which.max(hist(year_one$index, 
-#                                         n = nrow(year_one))$density) / nrow(year_one)
-#             height_two = which.max(hist(year_one$index, 
-#                                         n = nrow(year_two))$density) / nrow(year_two)
-#             
-#             insert_vector["year_one"] = years[y] 
-#             insert_vector["year_two"] = years[i] 
-#             insert_vector["year_one_index"] = as.tibble(year_one$index)
-#             insert_vector["year_two_index"] = as.tibble(year_two$index)
-#             insert_vector["year_one_mean"] =  year_one_mean
-#             insert_vector["year_two_mean"] = year_two_mean
-#             insert_vector["height_one"] = height_one
-#             insert_vector["height_two"] = height_two
-#             
-#             precalculated <- rbind(precalculated, data.frame(insert_vector))
-#         }
-#     }
-# }
-# 
-# write.csv(precalculated, "data/precalculated.csv")
+### PCA Lists
 
-precalculated <- read_csv("data/precalculated.csv") %>%
-    slice(-1)
+pca_eui <- eui_subset %>%
+    rowwise() %>%
+    mutate(pca = list(prcomp(demean.mat(as.matrix(c(va, pv, ge, rq, rl, cc)))))) %>%
+    rowwise() %>%
+    mutate(prc1 = unlist(pca)["x1"][[1]],
+           prc2 = unlist(pca)["x2"][[1]],
+           year = as.numeric(year))
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -182,9 +108,9 @@ ui <- fluidPage(
     # Sidebar with a slider input for number of bins 
     sidebarLayout(
         sidebarPanel(
-            selectInput(multiple = FALSE, "year1", "From:",
+            selectInput(multiple = FALSE, "year1", "Year One:",
                         paste(unique(eui_subset$year))),
-            selectInput(multiple = FALSE, "year2", "To:",
+            selectInput(multiple = FALSE, "year2", "Year Two:",
                         paste(unique(eui_subset$year)))
         ),
 
@@ -197,43 +123,39 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+    
+    # pca_eui %>%
+    #     filter(year %in% c(paste(unlist(input$year1)),
+    #                        paste(unlist(input$year2)))) %>%
+    #     ggplot(aes(x = prc1, y = prc2, color = year)) +
+    #     geom_text(aes(label = country)) +
+    #     geom_path(aes(group = country), 
+    #               arrow = arrow(length=unit(0.15,"cm")),
+    #               colour="black", size=1) +
+    #     theme(axis.title.y = element_blank(),
+    #           axis.text.y = element_blank(), 
+    #           axis.ticks.y = element_blank(),
+    #           plot.background = element_blank(),
+    #           panel.background = element_blank())
+    
+    # eui_subset %>%
+    #     filter(country %in% c(paste(unlist(input$countries)))) %>%
+    #     ggplot(aes(x = year, y = standard, group = country, color = country)) +
+    #     geom_line(size = 1.5) +
+    #     theme(plot.background = element_blank(),
+    #           panel.background = element_blank()) +
+    #     scale_y_continuous(position = "right")
 
     output$distPlot <- renderPlot({
-        earlier = min(c(as.numeric(paste(unlist(input$year1))), 
-                             as.numeric(paste(unlist(input$year2)))))
-        later = max(c(as.numeric(paste(unlist(input$year1))), 
-                 as.numeric(paste(unlist(input$year2)))))
-        
-        data <- precalculated %>% 
-            filter(year_one == later, year_two == earlier)
-        
-        # year one is later year
-        # year two is earlier year
-        
-        cols <- c("bar_1" = "#f54242", "bar_2" = "#b8b2ad")
-        
-        ggplot() +
-            geom_histogram(aes(x = data$year_one_index, 
-                               y = after_stat(count/sum(count)),
-                               fill = "bar_1"), 
-                           color = "black", alpha = 0.8) +
-            geom_histogram(aes(x = data$year_two_index,
-                               y = after_stat(count/sum(count)),
-                               fill = "bar_2"), 
-                           color = "black", alpha = 0.8) +
-            scale_fill_manual(name = "Year", values = cols,
-                              labels = c()) +
-            annotate("text", x = (data$year_one_mean[[1]] -.002), y = data$height_one[[1]] / 2, 
-                     size = 6, fontface = 2,
-                     label = paste(unlist(input$year1))) +
-            annotate("text", x = (data$year_two_mean[[1]] + .002), y = data$height_two[[1]] / 2, 
-                     size = 6, fontface = 2,
-                     label = paste(unlist(input$year2))) + 
-            theme(axis.title.y = element_blank(),
-                  axis.text.y = element_blank(), 
-                  axis.ticks.y = element_blank(),
-                  plot.background = element_blank(),
-                  panel.background = element_blank())
+        eui_subset %>%
+            filter(year %in% c(paste(unlist(input$year1)),
+                               paste(unlist(input$year2)))) %>%
+            group_by(country) %>%
+            pivot_wider(names_from = year, values_from = standard) %>%
+            group_by(country) %>% 
+            summarise_all(funs(first(na.omit(.)))) %>%
+            ggplot(aes_string(x = input$year1, y = input$year2)) +
+            geom_text(aes(label = country))
     })
 }
 
