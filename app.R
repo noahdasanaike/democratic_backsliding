@@ -8,6 +8,7 @@ library(rsample)
 library(ggthemes)
 library(modeest)
 library(countrycode)
+library(forecast)
 
 # Maps
 
@@ -41,26 +42,34 @@ ui <- fluidPage(
     titlePanel(h1("How is Democracy Changing?", align = "center")),
     
     hr(),
-    
-    plotOutput("distPlot"),
 
     # Sidebar with a slider input for number of bins 
-    fluidRow(
-        column(3,
-            h3("Index Distribution"),
-            selectInput(multiple = FALSE, "year1", "Year One:",
-                        paste(unique(eui_subset$year))),
-            selectInput(multiple = FALSE, "year2", "Year Two:",
-                        paste(unique(eui_subset$year))),
-            selectInput(multiple = TRUE, "region", "Regions:",
-                        paste(unique(eui_subset$region)))
+    tabsetPanel(
+        tabPanel("Democracy Indices",
+             plotOutput("distPlot"),
+             fluidRow(column(3,
+                             selectInput(multiple = FALSE, "year1", "Year One:",
+                                         paste(unique(eui_subset$year))),
+                             selectInput(multiple = FALSE, "year2", "Year Two:",
+                                         paste(unique(eui_subset$year)))),
+                      column(5,
+                             selectInput(multiple = TRUE, "region", "Regions:",
+                                         paste(unique(eui_subset$region)))))
         ),
-        column(3,
-               h3("Time Series"),
-               selectInput(multiple = TRUE, "country", "Countries:",
-                           paste(unique(eui_subset$year))),
-        )
-    )
+        tabPanel("Country Predictions",
+             plotOutput("predictPlot"),
+             fluidRow(column(3,
+                             selectInput(multiple = TRUE, "country", "Countries:",
+                                        paste(unique(eui_subset$country)))),
+                      column(4,
+                             sliderInput("future", "n years in the future:",
+                                         min = 0, max = 15,
+                                         value = 2)),
+                      column(5,
+                             sliderInput("poly", "y polynomial regression:",
+                                         min = 1, max = 4,
+                                         value = 2))
+        )))
 )
 
 # Define server logic required to draw a histogram
@@ -101,6 +110,17 @@ server <- function(input, output) {
             geom_text_repel(aes(label = country)) +
             labs(x = paste(unlist(input$year1)), y = paste(unlist(input$year2))) +
             theme_bw()
+    })
+    
+    output$predictPlot <- renderPlot({
+        eui_subset %>%
+            filter(country %in% c(paste(unlist(input$country)))) %>%
+            ggplot(aes(x = year, y = standard, group = country, color = country)) +
+            geom_line() +
+            theme_bw() +
+            xlim(1996, 2020 + input$future) +
+            stat_smooth(method = "lm", formula = y~poly(x, input$poly), fullrange = TRUE, 
+                        se = FALSE)
     })
 }
 
