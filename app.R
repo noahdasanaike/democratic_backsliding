@@ -84,7 +84,15 @@ ui <- fluidPage(
                              sliderInput("poly", "y polynomial regression:",
                                          min = 1, max = 4,
                                          value = 2))
-        )))
+        )),
+        tabPanel("About",
+                 br(),
+                 p("This project is intended to measure and track changes in
+                   democracy over-time. Variables are taken from the Economist
+                   Intelligence Unit, then SVD is performed in order to get a
+                   unidimensional index score. Then, the values are standardized
+                   in order to get a final value between 0 and 1.")
+        ))
 )
 
 # Define server logic required to draw a histogram
