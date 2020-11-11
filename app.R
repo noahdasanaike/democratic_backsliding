@@ -11,6 +11,9 @@ library(countrycode)
 library(forecast)
 library(ggrepel)
 
+library("randomForestSRC")
+library("ggRandomForests")
+
 # Maps
 
 library(rdrop2)
@@ -25,6 +28,8 @@ demean.mat <- function(xmat) {
 }
 
 eui_subset <- readRDS("data/eui_subset.rds")
+
+random_forests <- readRDS("data/forests.rds")
 
 ### PCA Lists
 
@@ -85,6 +90,14 @@ ui <- fluidPage(
                                          min = 1, max = 4,
                                          value = 2))
         )),
+        tabPanel("Yearly Comparison",
+                 plotOutput("forestPlot"),
+                 fluidRow(column(3,
+                                 selectInput(multiple = TRUE, "forestyear", "Years:",
+                                             selected = c(2018, 2019),
+                                             sort(as.numeric(paste(unique(eui_subset$year))),
+                                                  decreasing = FALSE)))
+                 )),
         tabPanel("About",
                  br(),
                  p("This project is intended to measure and track changes in
@@ -152,6 +165,21 @@ server <- function(input, output) {
             scale_color_discrete(name = "Countries") +
             geom_vline(xintercept = 2019, size = 1.2)
     })
+    
+    output$forestPlot <- renderPlot({
+        random_forests %>%
+            filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+            mutate(year = as.character(year)) %>%
+            unnest(rf) %>%
+            ggplot(aes(y = rf, group = year, color = year)) +
+            geom_boxplot() +
+            geom_jitter(aes(x = 0), position = position_jitterdodge(jitter.height = 0, 
+                                                                    jitter.width = 0.2)) +
+            theme_bw() +
+            scale_color_discrete(name = "Year") +
+            labs("Democratic Index")
+    })
+    
 }
 
 # Run the application 
