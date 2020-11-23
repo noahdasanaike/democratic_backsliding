@@ -29,7 +29,9 @@ demean.mat <- function(xmat) {
 
 eui_subset <- readRDS("data/eui_subset.rds")
 
-random_forests <- readRDS("data/forests.rds")
+random_forests <- readRDS("data/forests.rds") %>%
+    arrange(year) %>%
+    slice(-c(22))
 
 ### PCA Lists
 
@@ -40,6 +42,20 @@ pca_eui <- eui_subset %>%
     mutate(prc1 = unlist(pca)["x1"][[1]],
            prc2 = unlist(pca)["x2"][[1]],
            year = as.numeric(year))
+
+### Yearly Comparison
+
+forest_annual <- tibble()
+years <- unique(random_forests$year)
+    
+for (i in 1:length(years)){
+    year <- years[i]
+    temp <- tibble(year = year,
+                   actual = (eui_subset[which(eui_subset$year == year),])$standard,
+                   predicted = unlist(random_forests[i, 2]))
+    
+    forest_annual <- rbind(forest_annual, temp)
+}
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -96,7 +112,16 @@ ui <- fluidPage(
                                  selectInput(multiple = TRUE, "forestyear", "Years:",
                                              selected = c(2018, 2019),
                                              sort(as.numeric(paste(unique(eui_subset$year))),
-                                                  decreasing = FALSE)))
+                                                  decreasing = FALSE))),
+                          column(4,
+                                 selectInput(multiple = FALSE, "type", "Graph Type:",
+                                             selected = "Horizontal",
+                                             c("Sloped", "Horizontal")),
+                                 conditionalPanel(condition = "input.type == Sloped",
+                                                  sliderInput("zoom", "Zoom to Mean:",
+                                                              value = 0.5,
+                                                              min = 0.2, max = 0.9))),
+                          column(5, plotOutput("miniForest"))
                  )),
         tabPanel("About",
                  br(),
@@ -167,17 +192,65 @@ server <- function(input, output) {
     })
     
     output$forestPlot <- renderPlot({
-        random_forests %>%
-            filter(year %in% c(paste(unlist(input$forestyear)))) %>%
-            mutate(year = as.character(year)) %>%
-            unnest(rf) %>%
-            ggplot(aes(y = rf, group = year, color = year)) +
-            geom_boxplot() +
-            geom_jitter(aes(x = 0), position = position_jitterdodge(jitter.height = 0, 
-                                                                    jitter.width = 0.2)) +
-            theme_bw() +
-            scale_color_discrete(name = "Year") +
-            labs("Democratic Index")
+        if (input$type == "Sloped"){
+            forest_annual %>%
+                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+                mutate(year = as.character(year)) %>%
+                ggplot(aes(x = actual, y = predicted, group = year, color = year)) +
+                geom_point() +
+                geom_smooth(method = "lm", formula = y~x, se = F) +
+                theme_bw() +
+                scale_color_discrete(name = "Year") +
+                labs(y = "Predicted Democratic Index", x = "Actual Democratic Index")
+        }
+        else
+        {
+            forest_annual %>%
+                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+                mutate(year = as.character(year)) %>%
+                group_by(year) %>%
+                mutate(mean_pred = mean(predicted)) %>%
+                ggplot(aes(x = 0, y = predicted, group = year, color = year)) +
+                geom_jitter(height = 0) +
+                geom_hline(aes(yintercept = mean_pred, color = year)) + 
+                theme_bw() +
+                scale_color_discrete(name = "Year") +
+                labs(y = "Predicted Democratic Index", x = "")
+        }
+    })
+    
+    output$miniForest<- renderPlot({
+        if (input$type == "Sloped"){
+            temp <- forest_annual %>%
+                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+                mutate(year = as.character(year))
+            
+            temp %>%
+                ggplot(aes(y = predicted, x = actual)) +
+                geom_smooth(formula = y~x, aes(group = year, color = year), se = F,
+                            method = "lm") + 
+                theme_bw() +
+                scale_color_discrete(name = "Year") +
+                labs(y = "Mean Predicted Democratic Index", x = "") +
+                coord_cartesian(xlim = c(input$zoom - 0.01, input$zoom + 0.01),
+                                ylim = c(input$zoom - 0.01, input$zoom + 0.01))
+        }
+        else
+        {
+            temp <- forest_annual %>%
+                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+                mutate(year = as.character(year)) %>%
+                group_by(year) %>%
+                mutate(mean_pred = mean(predicted))
+
+            temp %>%
+                ggplot(aes(y = predicted)) +
+                geom_hline(aes(yintercept = mean_pred, color = year)) + 
+                theme_bw() +
+                scale_color_discrete(name = "Year") +
+                labs(y = "Mean Predicted Democratic Index", x = "") +
+                coord_cartesian(ylim = c(input$zoom - 0.05, input$zoom + 0.05))
+        }
     })
     
 }
