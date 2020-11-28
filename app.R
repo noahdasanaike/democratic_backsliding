@@ -10,6 +10,7 @@ library(modeest)
 library(countrycode)
 library(forecast)
 library(ggrepel)
+library(binr)
 
 library("randomForestSRC")
 library("ggRandomForests")
@@ -20,6 +21,15 @@ library(rdrop2)
 library(leaflet)
 library(rgdal)
 library(countrycode)
+library(compare)
+
+world_spdf <- readOGR( 
+    dsn = paste0("map_files") , 
+    layer = "TM_WORLD_BORDERS_SIMPL-0.3",
+    verbose = FALSE
+)
+
+world_spdf@data$id <- seq.int(nrow(world_spdf@data))
 
 ## Functions
 
@@ -52,7 +62,8 @@ for (i in 1:length(years)){
     year <- years[i]
     temp <- tibble(year = year,
                    actual = (eui_subset[which(eui_subset$year == year),])$standard,
-                   predicted = unlist(random_forests[i, 2]))
+                   predicted = unlist(random_forests[i, 2]),
+                   region = (eui_subset[which(eui_subset$year == year),])$region)
     
     forest_annual <- rbind(forest_annual, temp)
 }
@@ -73,6 +84,9 @@ ui <- fluidPage(
 
     # Sidebar with a slider input for number of bins 
     tabsetPanel(
+        tabPanel("Global Map",
+                 leafletOutput("globalPlot")
+        ),
         tabPanel("Democracy Indices",
              plotOutput("distPlot"),
              fluidRow(column(3,
@@ -114,14 +128,14 @@ ui <- fluidPage(
                                              sort(as.numeric(paste(unique(eui_subset$year))),
                                                   decreasing = FALSE))),
                           column(4,
+                                 selectInput(multiple = TRUE, "forestregion", "Regions:",
+                                             selected = c(unlist(paste(unique(eui_subset$region)))),
+                                             paste(unique(eui_subset$region)))),
+                          column(5,
                                  selectInput(multiple = FALSE, "type", "Graph Type:",
                                              selected = "Horizontal",
-                                             c("Sloped", "Horizontal")),
-                                 conditionalPanel(condition = "input.type == Sloped",
-                                                  sliderInput("zoom", "Zoom to Mean:",
-                                                              value = 0.5,
-                                                              min = 0.2, max = 0.9))),
-                          column(5, plotOutput("miniForest"))
+                                             c("Sloped", "Horizontal")))
+                          # ,column(5, plotOutput("miniForest"))
                  )),
         tabPanel("About",
                  br(),
@@ -136,27 +150,48 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
     
-    # pca_eui %>%
-    #     filter(year %in% c(paste(unlist(input$year1)),
-    #                        paste(unlist(input$year2)))) %>%
-    #     ggplot(aes(x = prc1, y = prc2, color = year)) +
-    #     geom_text(aes(label = country)) +
-    #     geom_path(aes(group = country), 
-    #               arrow = arrow(length=unit(0.15,"cm")),
-    #               colour="black", size=1) +
-    #     theme(axis.title.y = element_blank(),
-    #           axis.text.y = element_blank(), 
-    #           axis.ticks.y = element_blank(),
-    #           plot.background = element_blank(),
-    #           panel.background = element_blank())
-    
-    # eui_subset %>%
-    #     filter(country %in% c(paste(unlist(input$countries)))) %>%
-    #     ggplot(aes(x = year, y = standard, group = country, color = country)) +
-    #     geom_line(size = 1.5) +
-    #     theme(plot.background = element_blank(),
-    #           panel.background = element_blank()) +
-    #     scale_y_continuous(position = "right")
+    output$globalPlot <- renderLeaflet({
+        filtered_map <- world_spdf
+        
+        filtered_map@data <- merge((subset(eui_subset, year == 2016) %>% 
+                                        select(year, ISO3, standard)), world_spdf@data)
+        
+        filtered_map@data <- filtered_map@data %>% arrange(id)
+        
+        filtered_map@polygons <- filtered_map@polygons[c(as.numeric(unlist(paste(filtered_map@data$id))))]
+        filtered_map@plotOrder <- filtered_map@plotOrder[c(as.numeric(unlist(paste(filtered_map@data$id))))]
+        
+        mybins <- c(0, as.numeric(unlist(paste(attr(bins.getvals(bins(filtered_map@data$standard, target.bins = 6, 
+                                                                      minpts = 10)), "binlo")))), 1)
+        
+        mypalette <- colorBin(palette="YlOrBr", domain = filtered_map@data$standard, na.color = "transparent", 
+                              bins = mybins)
+        
+        mytext <- paste(
+            "Country: ",  filtered_map@data$NAME,"<br/>", 
+            "Democratic Index Score: ", filtered_map@data$standard, "<br/>",
+            sep="") %>%
+            lapply(htmltools::HTML)
+        
+        leaflet(filtered_map) %>% 
+            addTiles()  %>% 
+            setView(lat = 10, lng = 0, zoom = 2) %>%
+            addPolygons( 
+                fillColor = ~mypalette(standard), 
+                stroke=TRUE, 
+                fillOpacity = 0.9, 
+                label = mytext,
+                color = "white", 
+                weight=0.3,
+                labelOptions = labelOptions( 
+                    style = list("font-weight" = "normal", padding = "3px 8px"), 
+                    textsize = "13px", 
+                    direction = "auto"
+                )
+            ) %>%
+            addLegend(pal = mypalette, values = ~standard, opacity = 0.9, 
+                      title = "Democratic Index Value", position = "bottomleft")
+    })
 
     output$distPlot <- renderPlot({
         eui_subset %>%
@@ -194,64 +229,70 @@ server <- function(input, output) {
     output$forestPlot <- renderPlot({
         if (input$type == "Sloped"){
             forest_annual %>%
-                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+                filter(year %in% c(paste(unlist(input$forestyear))),
+                       region %in% c(paste(unlist(input$forestregion)))) %>%
                 mutate(year = as.character(year)) %>%
-                ggplot(aes(x = actual, y = predicted, group = year, color = year)) +
+                ggplot(aes(x = actual, y = predicted, color = year)) +
                 geom_point() +
                 geom_smooth(method = "lm", formula = y~x, se = F) +
                 theme_bw() +
                 scale_color_discrete(name = "Year") +
-                labs(y = "Predicted Democratic Index", x = "Actual Democratic Index")
+                labs(y = "Predicted Democratic Index", x = "Actual Democratic Index") +
+                facet_wrap(~ region, nrow = 1)
         }
         else
         {
             forest_annual %>%
-                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
+                filter(year %in% c(paste(unlist(input$forestyear))),
+                       region %in% c(paste(unlist(input$forestregion)))) %>%
                 mutate(year = as.character(year)) %>%
-                group_by(year) %>%
+                group_by(year, region) %>%
                 mutate(mean_pred = mean(predicted)) %>%
-                ggplot(aes(x = 0, y = predicted, group = year, color = year)) +
+                ggplot(aes(x = 0, y = predicted, color = year)) +
                 geom_jitter(height = 0) +
-                geom_hline(aes(yintercept = mean_pred, color = year)) + 
+                geom_hline(aes(yintercept = mean_pred, color = year)) +
                 theme_bw() +
-                scale_color_discrete(name = "Year") +
-                labs(y = "Predicted Democratic Index", x = "")
+                labs(y = "Predicted Democratic Index", x = "") +
+                facet_wrap(~ region, nrow = 1)
         }
     })
     
-    output$miniForest<- renderPlot({
-        if (input$type == "Sloped"){
-            temp <- forest_annual %>%
-                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
-                mutate(year = as.character(year))
-            
-            temp %>%
-                ggplot(aes(y = predicted, x = actual)) +
-                geom_smooth(formula = y~x, aes(group = year, color = year), se = F,
-                            method = "lm") + 
-                theme_bw() +
-                scale_color_discrete(name = "Year") +
-                labs(y = "Mean Predicted Democratic Index", x = "") +
-                coord_cartesian(xlim = c(input$zoom - 0.01, input$zoom + 0.01),
-                                ylim = c(input$zoom - 0.01, input$zoom + 0.01))
-        }
-        else
-        {
-            temp <- forest_annual %>%
-                filter(year %in% c(paste(unlist(input$forestyear)))) %>%
-                mutate(year = as.character(year)) %>%
-                group_by(year) %>%
-                mutate(mean_pred = mean(predicted))
-
-            temp %>%
-                ggplot(aes(y = predicted)) +
-                geom_hline(aes(yintercept = mean_pred, color = year)) + 
-                theme_bw() +
-                scale_color_discrete(name = "Year") +
-                labs(y = "Mean Predicted Democratic Index", x = "") +
-                coord_cartesian(ylim = c(input$zoom - 0.05, input$zoom + 0.05))
-        }
-    })
+    # output$miniForest<- renderPlot({
+    #     if (input$type == "Sloped"){
+    #         temp <- forest_annual %>%
+    #             filter(year %in% c(paste(unlist(input$forestyear))),
+    #                    region %in% c(paste(unlist(input$forestregion)))) %>%
+    #             mutate(year = as.character(year))
+    #         
+    #         temp %>%
+    #             ggplot(aes(y = predicted, x = actual)) +
+    #             geom_smooth(formula = y~x, aes(group = interaction(year, region), 
+    #                                            color =  interaction(year, region)), se = F,
+    #                         method = "lm") + 
+    #             theme_bw() +
+    #             scale_color_discrete(name = "Year") +
+    #             labs(y = "Mean Predicted Democratic Index", x = "") +
+    #             coord_cartesian(xlim = c(input$zoom - (0.5 * (1 - input$zoomamt)), input$zoom + (0.5 * (1 - input$zoomamt))),
+    #                             ylim = c(input$zoom - (0.5 * (1 - input$zoomamt)), input$zoom + (0.5 * (1 - input$zoomamt))))
+    #     }
+    #     else
+    #     {
+    #         temp <- forest_annual %>%
+    #             filter(year %in% c(paste(unlist(input$forestyear))),
+    #                    region %in% c(paste(unlist(input$forestregion)))) %>%
+    #             mutate(year = as.character(year)) %>%
+    #             group_by(year, region) %>%
+    #             mutate(mean_pred = mean(predicted))
+    # 
+    #         temp %>%
+    #             ggplot(aes(y = predicted)) +
+    #             geom_hline(aes(yintercept = mean_pred, color = interaction(year, region))) + 
+    #             theme_bw() +
+    #             scale_color_discrete(name = "Year") +
+    #             labs(y = "Mean Predicted Democratic Index", x = "") +
+    #             coord_cartesian(ylim = c(input$zoom - (0.5 * (1 - input$zoomamt)), input$zoom + (0.5 * (1 - input$zoomamt))))
+    #     }
+    # })
     
 }
 
