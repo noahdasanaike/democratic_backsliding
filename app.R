@@ -71,6 +71,27 @@ for (i in 1:length(years)){
 
 chosenFlag <- NULL
 
+### Map Graph Data
+
+# Regions
+
+regional_data <- tibble()
+regions <- unique(eui_subset$region)
+
+for (i in 1:length(regions)){
+    for (y in 1:length(years)){
+        temp <- tibble(region = regions[i],
+                       year = years[y],
+                       standard = mean(subset(eui_subset, year == years[y] | region == regions[i])$standard, na.rm = TRUE))
+        
+        regional_data <- rbind(regional_data, temp)
+    }
+}
+
+world_mean <- eui_subset %>%
+    group_by(year) %>%
+    summarize(standard = mean(standard, na.rm = TRUE))
+
 # Define UI for application that draws a histogram
 ui <- fluidPage(
     
@@ -92,10 +113,12 @@ ui <- fluidPage(
                  fluidRow(column(3,
                                  br(),
                                   selectInput(multiple = FALSE, selected = 2018,
-                                              "mapyear", "From:",
+                                              "mapyear", "Map Year:",
                                               sort(as.numeric(paste(unique(eui_subset$year))),
                                                    decreasing = FALSE)),
-                                 plotOutput("flag")))),
+                                 plotOutput("flag")),
+                          column(9,
+                          plotOutput("timeGraph")))),
         tabPanel("Democracy Indices",
              plotOutput("distPlot"),
              fluidRow(column(3,
@@ -103,12 +126,12 @@ ui <- fluidPage(
                                          "year1", "From:",
                                          sort(as.numeric(paste(unique(eui_subset$year))),
                                               decreasing = FALSE))),
-                      column(4,
+                      column(3,
                              selectInput(multiple = FALSE, selected = 2019,
                                          "year2", "To:",
                                          sort(as.numeric(paste(unique(eui_subset$year))),
                                               decreasing = TRUE))),
-                      column(5,
+                      column(3,
                              selectInput(multiple = TRUE, selected = "Europe & Central Asia", 
                                          "region", "Regions:",
                                          paste(unique(eui_subset$region)))))
@@ -120,11 +143,11 @@ ui <- fluidPage(
                                          selected = c("China", "Russian Federation", "United States"),
                                          "country", "Countries:",
                                         paste(unique(eui_subset$country)))),
-                      column(4, selected = 4,
+                      column(3, selected = 4,
                              sliderInput("future", "n years in the future:",
                                          min = 0, max = 15,
                                          value = 2)),
-                      column(5, selected = 2,
+                      column(3, selected = 2,
                              sliderInput("poly", "y polynomial regression:",
                                          min = 1, max = 4,
                                          value = 2))
@@ -136,11 +159,11 @@ ui <- fluidPage(
                                              selected = c(2018, 2019),
                                              sort(as.numeric(paste(unique(eui_subset$year))),
                                                   decreasing = FALSE))),
-                          column(4,
+                          column(3,
                                  selectInput(multiple = TRUE, "forestregion", "Regions:",
                                              selected = c(unlist(paste(unique(eui_subset$region)))),
                                              paste(unique(eui_subset$region)))),
-                          column(5,
+                          column(3,
                                  selectInput(multiple = FALSE, "type", "Graph Type:",
                                              selected = "Horizontal",
                                              c("Sloped", "Horizontal")))
@@ -175,7 +198,41 @@ server <- function(input, output) {
             annotate("text", label = countrycode(chosenFlag, origin = "iso2c", 
                                                  destination = "country.name"), 
                      x = 0, y = 0.18, size = 10) +
+            annotate("text", label = unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
+                                                                            destination = "iso3c"))$region), 
+                     x = 0, y = 0.165, size = 6) +
             theme_void()
+    })
+    
+    output$timeGraph <- renderPlot({
+        req(input$globalPlot_shape_click)
+        
+        region_choice <- unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
+                                                                destination = "iso3c"))$region)
+        
+        name <- countrycode(chosenFlag, origin = "iso2c", 
+                            destination = "country.name")
+        
+        cols <- c("country" = "#f04546", "world" = "#3591d1", "region" = "#62c76b")
+        
+        region_mean <- regional_data %>%
+            filter(region == region_choice)
+        
+        filtered <- eui_subset %>%
+            filter(ISO3 == countrycode(chosenFlag, origin = "iso2c", 
+                                       destination = "iso3c"))
+        
+            ggplot() +
+            geom_line(data = filtered, size = 1, aes(x = year, y = standard, color = "country")) +
+                geom_point(data = filtered, size = 2, aes(x = year, y = standard)) +
+            geom_line(data = region_mean, size = 1, aes(x = year, y = standard, color = "region", group = 1)) +
+                geom_point(data = region_mean, size = 1, aes(x = year, y = standard)) +
+            geom_line(data = world_mean, size = 1, aes(x = year, y = standard, color = "world")) +
+                geom_point(data = world_mean, size = 1, aes(x = year, y = standard)) +
+            theme_bw() +
+            labs(x = "Year", y = "Democratic Index") +
+            geom_vline(xintercept = as.numeric(input$mapyear), size = 1) +
+            scale_colour_manual(name = "", values = cols, labels = c(paste(unlist(name)), paste(unlist(region_choice)), "World"))
     })
     
     output$globalPlot <- renderLeaflet({
@@ -219,7 +276,7 @@ server <- function(input, output) {
                 )
             ) %>%
             addLegend(pal = mypalette, values = ~standard, opacity = 0.9, 
-                      title = "Democratic Index Value", position = "bottomright")
+                      title = "Democratic Index", position = "bottomright")
     })
 
     output$distPlot <- renderPlot({
