@@ -16,12 +16,14 @@ library("randomForestSRC")
 library("ggRandomForests")
 
 # Maps
+devtools::install_github("ellisp/ggflags") 
 
 library(rdrop2)
 library(leaflet)
 library(rgdal)
 library(countrycode)
 library(compare)
+library(ggflags)
 
 world_spdf <- readOGR( 
     dsn = paste0("map_files") , 
@@ -68,6 +70,8 @@ for (i in 1:length(years)){
     forest_annual <- rbind(forest_annual, temp)
 }
 
+chosenFlag <- NULL
+
 # Define UI for application that draws a histogram
 ui <- fluidPage(
     
@@ -85,7 +89,12 @@ ui <- fluidPage(
     # Sidebar with a slider input for number of bins 
     tabsetPanel(
         tabPanel("Global Map",
-                 leafletOutput("globalPlot")
+                 leafletOutput("globalPlot"),
+                 plotOutput("flag"),
+                 fluidRow(column(3, selectInput(multiple = FALSE, selected = 2018,
+                                                "mapyear", "From:",
+                                                sort(as.numeric(paste(unique(eui_subset$year))),
+                                                    decreasing = FALSE))))
         ),
         tabPanel("Democracy Indices",
              plotOutput("distPlot"),
@@ -149,11 +158,26 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+    observeEvent(input$globalPlot_shape_click, {
+        p <- input$globalPlot_shape_click
+        print(p)
+        chosenFlag <<- tolower(p$id)
+    })
+    
+    output$flag <- renderPlot({
+        req(input$globalPlot_shape_click)
+        d %>%
+            ggplot(aes(x = 0, y = 0, country = chosenFlag, size = 400)) + 
+            geom_flag() + 
+            theme_void() +
+            scale_size(range = c(0, 50)) + 
+            theme(legend.position = "none")
+    })
     
     output$globalPlot <- renderLeaflet({
         filtered_map <- world_spdf
         
-        filtered_map@data <- merge((subset(eui_subset, year == 2016) %>% 
+        filtered_map@data <- merge((subset(eui_subset, year == input$mapyear) %>% 
                                         select(year, ISO3, standard)), world_spdf@data)
         
         filtered_map@data <- filtered_map@data %>% arrange(id)
@@ -164,12 +188,12 @@ server <- function(input, output) {
         mybins <- c(0, as.numeric(unlist(paste(attr(bins.getvals(bins(filtered_map@data$standard, target.bins = 6, 
                                                                       minpts = 10)), "binlo")))), 1)
         
-        mypalette <- colorBin(palette="YlOrBr", domain = filtered_map@data$standard, na.color = "transparent", 
-                              bins = mybins)
+        mypalette <- colorBin(palette="YlOrBr", domain = filtered_map@data$standard, 
+                              na.color = "transparent", bins = mybins)
         
         mytext <- paste(
             "Country: ",  filtered_map@data$NAME,"<br/>", 
-            "Democratic Index Score: ", filtered_map@data$standard, "<br/>",
+            "Democratic Index Score: ", round(filtered_map@data$standard, 3), "<br/>",
             sep="") %>%
             lapply(htmltools::HTML)
         
@@ -181,6 +205,7 @@ server <- function(input, output) {
                 stroke=TRUE, 
                 fillOpacity = 0.9, 
                 label = mytext,
+                layerId = ~ISO2,
                 color = "white", 
                 weight=0.3,
                 labelOptions = labelOptions( 
@@ -190,7 +215,7 @@ server <- function(input, output) {
                 )
             ) %>%
             addLegend(pal = mypalette, values = ~standard, opacity = 0.9, 
-                      title = "Democratic Index Value", position = "bottomleft")
+                      title = "Democratic Index Value", position = "bottomright")
     })
 
     output$distPlot <- renderPlot({
