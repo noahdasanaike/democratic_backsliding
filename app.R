@@ -16,14 +16,13 @@ library("randomForestSRC")
 library("ggRandomForests")
 
 # Maps
-devtools::install_github("ellisp/ggflags") 
 
 library(rdrop2)
 library(leaflet)
 library(rgdal)
 library(countrycode)
 library(compare)
-library(ggflags)
+library(ggimage)
 
 world_spdf <- readOGR( 
     dsn = paste0("map_files") , 
@@ -88,14 +87,15 @@ ui <- fluidPage(
 
     # Sidebar with a slider input for number of bins 
     tabsetPanel(
-        tabPanel("Global Map",
+        tabPanel("Global Map", 
                  leafletOutput("globalPlot"),
-                 plotOutput("flag"),
-                 fluidRow(column(3, selectInput(multiple = FALSE, selected = 2018,
-                                                "mapyear", "From:",
-                                                sort(as.numeric(paste(unique(eui_subset$year))),
-                                                    decreasing = FALSE))))
-        ),
+                 fluidRow(column(3,
+                                 br(),
+                                  selectInput(multiple = FALSE, selected = 2018,
+                                              "mapyear", "From:",
+                                              sort(as.numeric(paste(unique(eui_subset$year))),
+                                                   decreasing = FALSE)),
+                                 plotOutput("flag")))),
         tabPanel("Democracy Indices",
              plotOutput("distPlot"),
              fluidRow(column(3,
@@ -166,12 +166,16 @@ server <- function(input, output) {
     
     output$flag <- renderPlot({
         req(input$globalPlot_shape_click)
-        d %>%
-            ggplot(aes(x = 0, y = 0, country = chosenFlag, size = 400)) + 
-            geom_flag() + 
-            theme_void() +
-            scale_size(range = c(0, 50)) + 
-            theme(legend.position = "none")
+        data.frame(image = paste("https://flagcdn.com/w640/",
+                                 chosenFlag,
+                                 ".jpg",
+                                 sep = "")) %>%
+            ggplot(aes(0, 0)) + 
+            geom_image(aes(image=image), nudge_y = 0.1, size = 0.8) +
+            annotate("text", label = countrycode(chosenFlag, origin = "iso2c", 
+                                                 destination = "country.name"), 
+                     x = 0, y = 0.18, size = 10) +
+            theme_void()
     })
     
     output$globalPlot <- renderLeaflet({
