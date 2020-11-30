@@ -13,6 +13,7 @@ library(ggrepel)
 library(binr)
 library(gghighlight)
 library(shinythemes)
+library(wesanderson)
 
 library("randomForestSRC")
 library("ggRandomForests")
@@ -245,7 +246,7 @@ server <- function(input, output) {
         name <- countrycode(chosenFlag, origin = "iso2c", 
                             destination = "country.name")
         
-        cols <- c("country" = "#488f31", "world" = "#c6c6c6", "region" = "#de425b")
+        cols <- c("country" = "#B10026", "world" = "#FEB24C", "region" = "#FC4E2A")
         
         region_mean <- regional_data %>%
             filter(region == region_choice)
@@ -255,13 +256,12 @@ server <- function(input, output) {
                                        destination = "iso3c"))
         
             ggplot() +
-            geom_line(data = filtered, size = 1.2, aes(x = year, y = standard, color = "country")) +
+            stat_smooth(geom = "line",  alpha = 0.5, data = filtered, size = 1.8, aes(x = year, y = standard, color = "country"), se = FALSE, span = 1) +
                 geom_point(data = filtered, size = 2, aes(x = year, y = standard)) +
-            geom_line(data = region_mean, size = 1.2, aes(x = year, y = standard, color = "region", group = 1)) +
+            stat_smooth(geom = "line", alpha = 0.5, data = region_mean, size = 1.8, aes(x = year, y = standard, color = "region"), se = FALSE, span = 1) +
                 geom_point(data = region_mean, size = 2, aes(x = year, y = standard)) +
-            geom_line(data = world_mean, size = 1.2, aes(x = year, y = standard, color = "world")) +
+            stat_smooth(geom = "line", alpha = 0.5, data = world_mean, size = 1.8, aes(x = year, y = standard, color = "world"), se = FALSE, span = 1) +
                 geom_point(data = world_mean, size = 2, aes(x = year, y = standard)) +
-            theme_bw() +
             labs(x = "Year", y = "Democratic Index") +
             geom_vline(xintercept = as.numeric(input$mapyear), size = 1) +
             scale_colour_manual(name = "", values = cols, labels = c(paste(unlist(name)), paste(unlist(region_choice)), "World"))
@@ -278,10 +278,10 @@ server <- function(input, output) {
         filtered_map@polygons <- filtered_map@polygons[c(as.numeric(unlist(paste(filtered_map@data$id))))]
         filtered_map@plotOrder <- filtered_map@plotOrder[c(as.numeric(unlist(paste(filtered_map@data$id))))]
         
-        mybins <- c(0, as.numeric(unlist(paste(attr(bins.getvals(bins(filtered_map@data$standard, target.bins = 6, 
+        mybins <- c(as.numeric(unlist(paste(attr(bins.getvals(bins(filtered_map@data$standard, target.bins = 7, 
                                                                       minpts = 10)), "binlo")))), 1)
         
-        mypalette <- colorBin(palette="YlOrBr", domain = filtered_map@data$standard, 
+        mypalette <- colorBin("YlOrRd", domain = filtered_map@data$standard, 
                               na.color = "transparent", bins = mybins)
         
         mytext <- paste(
@@ -290,17 +290,21 @@ server <- function(input, output) {
             sep="") %>%
             lapply(htmltools::HTML)
         
-        leaflet(filtered_map) %>% 
-            addTiles()  %>% 
+        leaflet(filtered_map) %>%
+            addProviderTiles(providers$CartoDB.PositronNoLabels) %>%
             setView(lat = 10, lng = 0, zoom = 2) %>%
             addPolygons( 
                 fillColor = ~mypalette(standard), 
-                stroke=TRUE, 
-                fillOpacity = 0.9, 
+                stroke = TRUE,
+                color = "black",
+                opacity = 1,
+                fillOpacity = 0.5, 
                 label = mytext,
                 layerId = ~ISO2,
-                color = "white", 
-                weight=0.3,
+                weight = 1,
+                smoothFactor = 0.5,
+                highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                    bringToFront = TRUE),
                 labelOptions = labelOptions( 
                     style = list("font-weight" = "normal", padding = "3px 8px"), 
                     textsize = "13px", 
@@ -325,7 +329,6 @@ server <- function(input, output) {
             ggplot(aes(x = get(input$year1), y = get(input$year2))) +
             geom_text_repel(aes(label = country, color = change)) +
             labs(x = paste(unlist(input$year1)), y = paste(unlist(input$year2))) +
-            theme_bw() +
             geom_abline(slope = 1, intercept = 0, aes(alpha = 0.5)) +
             scale_color_discrete(name = "Change", labels = c("Negative", "Positive"))
     })
@@ -335,12 +338,11 @@ server <- function(input, output) {
             filter(country %in% c(paste(unlist(input$country)))) %>%
             ggplot(aes(x = year, y = standard, group = country, color = country)) +
             geom_line(size = 1.1) +
-            theme_bw() +
             xlim(1996, 2020 + input$future) +
             stat_smooth(method = "lm", formula = y~poly(x, input$poly), fullrange = TRUE, 
                         se = FALSE, lty = 2) +
             labs(x = "Year", y = "Democratic Index") +
-            scale_color_discrete(name = "Countries") +
+            scale_color_brewer(palette = "Dark2", name = "Countries") +
             geom_vline(xintercept = 2019, size = 1.2)
     })
     
@@ -353,7 +355,6 @@ server <- function(input, output) {
                 ggplot(aes(x = actual, y = predicted, color = year)) +
                 geom_point() +
                 geom_smooth(method = "lm", formula = y~x, se = F) +
-                theme_bw() +
                 scale_color_discrete(name = "Year") +
                 labs(y = "Predicted Democratic Index", x = "Actual Democratic Index") +
                 facet_wrap(~ region, nrow = 1)
@@ -369,7 +370,6 @@ server <- function(input, output) {
                 ggplot(aes(x = 0, y = predicted, color = year)) +
                 geom_jitter(height = 0) +
                 geom_hline(aes(yintercept = mean_pred, color = year)) +
-                theme_bw() +
                 labs(y = "Predicted Democratic Index", x = "") +
                 facet_wrap(~ region, nrow = 1)
         }
