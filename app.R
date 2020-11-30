@@ -209,9 +209,10 @@ server <- function(input, output) {
             geom_point(data = predictions_graph, aes(x = jitter_year, y = standard), color = "red") +
             gghighlight(year > 2019) +
             geom_segment(data = mean, aes(x = lag_year, y = lag, xend = year, yend = standard, color = change),
-                         size = 1) +
+                         size = 1.3) +
             scale_color_discrete(name = "Change", labels = c("Decrease", "Increase")) +
-            labs(x = "Year", y = "Democratic Index Score")
+            labs(x = "Year", y = "Democratic Index Score") +
+            theme_bw()
     })
     
     observeEvent(input$globalPlot_shape_click, {
@@ -262,6 +263,7 @@ server <- function(input, output) {
                 geom_point(data = region_mean, size = 2, aes(x = year, y = standard)) +
             stat_smooth(geom = "line", alpha = 0.5, data = world_mean, size = 1.8, aes(x = year, y = standard, color = "world"), se = FALSE, span = 1) +
                 geom_point(data = world_mean, size = 2, aes(x = year, y = standard)) +
+            theme_bw() +
             labs(x = "Year", y = "Democratic Index") +
             geom_vline(xintercept = as.numeric(input$mapyear), size = 1) +
             scale_colour_manual(name = "", values = cols, labels = c(paste(unlist(name)), paste(unlist(region_choice)), "World"))
@@ -329,6 +331,7 @@ server <- function(input, output) {
             ggplot(aes(x = get(input$year1), y = get(input$year2))) +
             geom_text_repel(aes(label = country, color = change)) +
             labs(x = paste(unlist(input$year1)), y = paste(unlist(input$year2))) +
+            theme_bw() +
             geom_abline(slope = 1, intercept = 0, aes(alpha = 0.5)) +
             scale_color_discrete(name = "Change", labels = c("Negative", "Positive"))
     })
@@ -338,6 +341,7 @@ server <- function(input, output) {
             filter(country %in% c(paste(unlist(input$country)))) %>%
             ggplot(aes(x = year, y = standard, group = country, color = country)) +
             geom_line(size = 1.1) +
+            theme_bw() +
             xlim(1996, 2020 + input$future) +
             stat_smooth(method = "lm", formula = y~poly(x, input$poly), fullrange = TRUE, 
                         se = FALSE, lty = 2) +
@@ -355,6 +359,7 @@ server <- function(input, output) {
                 ggplot(aes(x = actual, y = predicted, color = year)) +
                 geom_point() +
                 geom_smooth(method = "lm", formula = y~x, se = F) +
+                theme_bw() +
                 scale_color_discrete(name = "Year") +
                 labs(y = "Predicted Democratic Index", x = "Actual Democratic Index") +
                 facet_wrap(~ region, nrow = 1)
@@ -370,6 +375,7 @@ server <- function(input, output) {
                 ggplot(aes(x = 0, y = predicted, color = year)) +
                 geom_jitter(height = 0) +
                 geom_hline(aes(yintercept = mean_pred, color = year)) +
+                theme_bw() +
                 labs(y = "Predicted Democratic Index", x = "") +
                 facet_wrap(~ region, nrow = 1)
         }
