@@ -11,6 +11,8 @@ library(countrycode)
 library(forecast)
 library(ggrepel)
 library(binr)
+library(gghighlight)
+library(shinythemes)
 
 library("randomForestSRC")
 library("ggRandomForests")
@@ -38,11 +40,18 @@ demean.mat <- function(xmat) {
     apply(xmat, 2, function(z) z - mean(z))
 }
 
-eui_subset <- readRDS("data/eui_subset.rds")
+eui_subset <- readRDS("data/eui_subset.rds") %>%
+    mutate(ISO3 = if_else(country == "Korea, Dem. Rep.", "PRK", ISO3)) %>%
+    filter(!year == 1996)
 
 random_forests <- readRDS("data/forests.rds") %>%
+    filter(!year == 1996) %>%
     arrange(year) %>%
     slice(-c(22))
+
+### Predictions
+
+predictions <- readRDS("predictions.RDS")
 
 ### PCA Lists
 
@@ -82,7 +91,7 @@ for (i in 1:length(regions)){
     for (y in 1:length(years)){
         temp <- tibble(region = regions[i],
                        year = years[y],
-                       standard = mean(subset(eui_subset, year == years[y] | region == regions[i])$standard, na.rm = TRUE))
+                       standard = mean(subset(eui_subset, year == years[y] & region == regions[i])$standard, na.rm = TRUE))
         
         regional_data <- rbind(regional_data, temp)
     }
@@ -94,6 +103,7 @@ world_mean <- eui_subset %>%
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
+    theme = shinytheme("flatly"),
     
     tags$head(HTML("<title>Democracy Index</title>")),
     tags$head(tags$style(type = "text/css", paste0(".selectize-dropdown {
@@ -105,9 +115,8 @@ ui <- fluidPage(
     titlePanel(h1("How is Democracy Changing?", align = "center")),
     
     hr(),
-
-    # Sidebar with a slider input for number of bins 
     tabsetPanel(
+        selected = "Global Map",
         tabPanel("Global Map", 
                  leafletOutput("globalPlot"),
                  fluidRow(column(3,
@@ -118,6 +127,7 @@ ui <- fluidPage(
                                                    decreasing = FALSE)),
                                  plotOutput("flag")),
                           column(9,
+                                 br(),
                           plotOutput("timeGraph")))),
         tabPanel("Democracy Indices",
              plotOutput("distPlot"),
@@ -169,6 +179,8 @@ ui <- fluidPage(
                                              c("Sloped", "Horizontal")))
                           # ,column(5, plotOutput("miniForest"))
                  )),
+        tabPanel("n+1 Predictive Modeling",
+                 plotOutput("predictModel")),
         tabPanel("About",
                  br(),
                  p("This project is intended to measure and track changes in
@@ -179,8 +191,28 @@ ui <- fluidPage(
         ))
 )
 
-# Define server logic required to draw a histogram
 server <- function(input, output) {
+    output$predictModel <- renderPlot({
+        mean <- predictions %>%
+            group_by(year) %>%
+            summarize(standard = mean(standard)) %>%
+            mutate(lag = lag(standard)) %>%
+            mutate(lag_year = lag(year)) %>%
+            mutate(change = ifelse(lag(standard) > standard, "less", "more")) %>%
+            slice(2:21)
+        
+        predictions_graph <- predictions %>%
+            mutate(jitter_year = jitter(year, factor = 1, amount = NULL))
+        
+        ggplot() +
+            geom_point(data = predictions_graph, aes(x = jitter_year, y = standard), color = "red") +
+            gghighlight(year > 2019) +
+            geom_segment(data = mean, aes(x = lag_year, y = lag, xend = year, yend = standard, color = change),
+                         size = 1) +
+            scale_color_discrete(name = "Change", labels = c("Decrease", "Increase")) +
+            labs(x = "Year", y = "Democratic Index Score")
+    })
+    
     observeEvent(input$globalPlot_shape_click, {
         p <- input$globalPlot_shape_click
         print(p)
@@ -213,7 +245,7 @@ server <- function(input, output) {
         name <- countrycode(chosenFlag, origin = "iso2c", 
                             destination = "country.name")
         
-        cols <- c("country" = "#f04546", "world" = "#3591d1", "region" = "#62c76b")
+        cols <- c("country" = "#488f31", "world" = "#c6c6c6", "region" = "#de425b")
         
         region_mean <- regional_data %>%
             filter(region == region_choice)
@@ -223,12 +255,12 @@ server <- function(input, output) {
                                        destination = "iso3c"))
         
             ggplot() +
-            geom_line(data = filtered, size = 1, aes(x = year, y = standard, color = "country")) +
+            geom_line(data = filtered, size = 1.2, aes(x = year, y = standard, color = "country")) +
                 geom_point(data = filtered, size = 2, aes(x = year, y = standard)) +
-            geom_line(data = region_mean, size = 1, aes(x = year, y = standard, color = "region", group = 1)) +
-                geom_point(data = region_mean, size = 1, aes(x = year, y = standard)) +
-            geom_line(data = world_mean, size = 1, aes(x = year, y = standard, color = "world")) +
-                geom_point(data = world_mean, size = 1, aes(x = year, y = standard)) +
+            geom_line(data = region_mean, size = 1.2, aes(x = year, y = standard, color = "region", group = 1)) +
+                geom_point(data = region_mean, size = 2, aes(x = year, y = standard)) +
+            geom_line(data = world_mean, size = 1.2, aes(x = year, y = standard, color = "world")) +
+                geom_point(data = world_mean, size = 2, aes(x = year, y = standard)) +
             theme_bw() +
             labs(x = "Year", y = "Democratic Index") +
             geom_vline(xintercept = as.numeric(input$mapyear), size = 1) +
