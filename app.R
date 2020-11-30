@@ -13,7 +13,6 @@ library(ggrepel)
 library(binr)
 library(gghighlight)
 library(shinythemes)
-library(wesanderson)
 
 library("randomForestSRC")
 library("ggRandomForests")
@@ -79,7 +78,7 @@ for (i in 1:length(years)){
     forest_annual <- rbind(forest_annual, temp)
 }
 
-chosenFlag <- NULL
+chosenFlag <- "us"
 
 ### Map Graph Data
 
@@ -217,25 +216,33 @@ server <- function(input, output) {
     
     observeEvent(input$globalPlot_shape_click, {
         p <- input$globalPlot_shape_click
-        print(p)
         chosenFlag <<- tolower(p$id)
     })
     
     output$flag <- renderPlot({
-        req(input$globalPlot_shape_click)
-        data.frame(image = paste("https://flagcdn.com/w640/",
-                                 chosenFlag,
-                                 ".jpg",
-                                 sep = "")) %>%
-            ggplot(aes(0, 0)) + 
-            geom_image(aes(image=image), nudge_y = 0.1, size = 0.8) +
-            annotate("text", label = countrycode(chosenFlag, origin = "iso2c", 
-                                                 destination = "country.name"), 
-                     x = 0, y = 0.18, size = 10) +
-            annotate("text", label = unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
-                                                                            destination = "iso3c"))$region), 
-                     x = 0, y = 0.165, size = 6) +
-            theme_void()
+        if (is.null(input$globalPlot_shape_click)){
+            tibble(x = 0, y = 1) %>%
+                ggplot() +
+                annotate("text", x = -0.15, y = 0.9, size = 8, label = "Click on a country to view\n more details.") +
+                ylim(0, 1) +
+                xlim(-1, 1) +
+                theme_void()
+        }
+        else{
+            data.frame(image = paste("https://flagcdn.com/w640/",
+                                     chosenFlag,
+                                     ".jpg",
+                                     sep = "")) %>%
+                ggplot(aes(0, 0)) + 
+                geom_image(aes(image = image), nudge_y = 0.1, size = 0.8) +
+                annotate("text", label = countrycode(chosenFlag, origin = "iso2c", 
+                                                     destination = "country.name"), 
+                         x = 0, y = 0.18, size = 10) +
+                annotate("text", label = unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
+                                                                                       destination = "iso3c"))$region), 
+                         x = 0, y = 0.165, size = 6) +
+                theme_void()
+        }
     })
     
     output$timeGraph <- renderPlot({
@@ -329,11 +336,13 @@ server <- function(input, output) {
             mutate(change = as.factor(ifelse(get(input$year2) > get(input$year1), 
                                              1, 0))) %>%
             ggplot(aes(x = get(input$year1), y = get(input$year2))) +
-            geom_text_repel(aes(label = country, color = change)) +
+            geom_text_repel(aes(label = country, color = change, fontface = 2), show.legend = FALSE) +
+            geom_point(aes(color = change), alpha = 0, size = 2) +
             labs(x = paste(unlist(input$year1)), y = paste(unlist(input$year2))) +
             theme_bw() +
             geom_abline(slope = 1, intercept = 0, aes(alpha = 0.5)) +
-            scale_color_discrete(name = "Change", labels = c("Negative", "Positive"))
+            scale_color_discrete(name = "Change", labels = c("Negative", "Positive")) +
+            guides(colour = guide_legend(override.aes = list(alpha = 1)))
     })
     
     output$predictPlot <- renderPlot({
