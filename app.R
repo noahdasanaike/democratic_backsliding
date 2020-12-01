@@ -13,6 +13,9 @@ library(ggrepel)
 library(binr)
 library(gghighlight)
 library(shinythemes)
+library(WDI)
+library(gtsummary)
+library(gt)
 
 library("randomForestSRC")
 library("ggRandomForests")
@@ -53,6 +56,28 @@ random_forests <- readRDS("data/forests.rds") %>%
 
 predictions <- readRDS("predictions.RDS")
 
+pred_categorization <- predictions %>%
+    rowwise() %>%
+    mutate(type = case_when(standard > .8 ~ "Full Democracy",
+                            standard >= .6 & standard < .8 ~ "Flawed Democracy",
+                            standard > .4 & standard < .6 ~ "Hybrid Regime",
+                            standard < .4 & standard ~ "Authoritarian",
+                            TRUE ~ "None"))
+
+pred_2019 <- pred_categorization %>%
+    filter(year %in% c(2019)) %>%
+    count(type) %>%
+    mutate(year = 2019)
+
+pred_2020 <- pred_categorization %>%
+    filter(year %in% c(2020)) %>%
+    count(type) %>%
+    mutate(year = 2020)
+
+pred_table <- pred_2019
+
+pred_table <- rbind(pred_table, pred_2020)
+
 ### PCA Lists
 
 pca_eui <- eui_subset %>%
@@ -67,6 +92,8 @@ pca_eui <- eui_subset %>%
 
 forest_annual <- tibble()
 years <- unique(random_forests$year)
+
+chosenFlag <- NULL
     
 for (i in 1:length(years)){
     year <- years[i]
@@ -77,8 +104,6 @@ for (i in 1:length(years)){
     
     forest_annual <- rbind(forest_annual, temp)
 }
-
-chosenFlag <- "us"
 
 ### Map Graph Data
 
@@ -101,7 +126,46 @@ world_mean <- eui_subset %>%
     group_by(year) %>%
     summarize(standard = mean(standard, na.rm = TRUE))
 
-# Define UI for application that draws a histogram
+### Random Forest Fit
+
+names <- WDIsearch() %>%
+    as.data.frame() %>%
+    tibble() %>%
+    mutate(indicator = tolower(indicator))
+
+names$indicator <- gsub('\\.', '_', names$indicator)
+
+fit <- readRDS("ranger_fit.RDS") 
+
+importance <- fit$variable.importance %>%
+    tibble() %>%
+    rename(var = ".") %>%
+    rowwise() %>%
+    mutate(indicator = attributes(var)) %>%
+    mutate(indicator = sapply(indicator, toString)) %>%
+    tibble() %>%
+    left_join(names, by = "indicator")
+
+filtered_importance <- importance %>%
+    arrange(desc(var)) %>%
+    rowwise() %>%
+    mutate(sqrt_var = sqrt(var))
+    
+filtered_importance <- filtered_importance[-c(2, 5, 10, 11),]
+
+### Predictions Graph
+
+mean <- predictions %>%
+    group_by(year) %>%
+    summarize(standard = mean(standard)) %>%
+    mutate(lag = lag(standard)) %>%
+    mutate(lag_year = lag(year)) %>%
+    mutate(change = ifelse(lag(standard) > standard, "less", "more")) %>%
+    slice(2:21)
+
+predictions_graph <- predictions %>%
+    mutate(jitter_year = jitter(year, factor = 1, amount = NULL))
+
 ui <- fluidPage(
     theme = shinytheme("flatly"),
     
@@ -121,6 +185,7 @@ ui <- fluidPage(
                  leafletOutput("globalPlot"),
                  fluidRow(column(3,
                                  br(),
+                                 p("Select a country to view more details."),
                                   selectInput(multiple = FALSE, selected = 2018,
                                               "mapyear", "Map Year:",
                                               sort(as.numeric(paste(unique(eui_subset$year))),
@@ -180,30 +245,68 @@ ui <- fluidPage(
                           # ,column(5, plotOutput("miniForest"))
                  )),
         tabPanel("n+1 Predictive Modeling",
-                 plotOutput("predictModel")),
+                 plotOutput("predictModel"),
+                 fluidRow(column(6,
+                                 br(),
+                                 p(strong("Time-Series Cross-Validation and Block Partitioning")),
+                                 br(),
+                                 p("In order to construct the predicted democratic index values for 2020
+                                   as seen above, I first downloaded all of the World Bank Development Indicators across
+                                   all available years, then merged with my democratic index values by country and year in order to create
+                                   a time-series of each variable. From there, I dropped each variable with all NA values, then removed any
+                                   constant and double variables as well as exact bijections. From there, I ran manual imputation by mean, grouping
+                                   by year and then again, for NaN values, by year and country. I then used modified k-fold cross-validation such that the
+                                   data is split in sequential order as follows:"),
+                                 br(),
+                                 img(src = "blocked_split.png"),
+                                 br(),
+                                 br(),
+                                 p("After creating the timefolds and determining the best mtry, or number of
+                                   variables available for splitting at each node, I create my model using
+                                   the ranger() function:"),
+                                 br(),
+                                 verbatimTextOutput("predictFit"),
+                                 br(), 
+                                 p("then predict() using my testing split. Because the
+                                   outcome variable is the lagged democratic index value for each year, the outcome
+                                   for 2019 should be the actual predicted standard for 2020.")),
+                          column(6,
+                                 plotOutput("predictImportance"),
+                                 br(),
+                                 br(),
+                                 br(),
+                                 gt_output("predictTable")))),
         tabPanel("About",
+                 fluidRow(column(6,
                  br(),
                  p("This project is intended to measure and track changes in
                    democracy over-time. Variables are taken from the Economist
                    Intelligence Unit, then SVD is performed in order to get a
-                   unidimensional index score. Then, the values are standardized
-                   in order to get a final value between 0 and 1.")
+                   unidimensional index score. Finally, the values are standardized
+                   in order to produce a value range of 0 to 1. For my n+1 time-series
+                   modeling, I downloaded all 539 World Bank Development Indicators across
+                   all available years by using the WDI R package."),
+                 br(),
+                 p("The EIU dataset can be obtained from the following link (warning: direct download). In
+                   order to clean the data, I had to run the code attached below that."),
+                 br(),
+                 a("World Bank EIU Upload", href = "https://info.worldbank.org/governance/wgi/Home/downLoadFile?fileName=EIU.xlsx",
+                   target = "_blank"),
+                 br(),
+                 a("Cleaning Script (my Github)", href = "https://github.com/noahdasanaike/democratic_backsliding/blob/master/create_data.R",
+                   target = "_blank"),
+                 br(),
+                 br(),
+                 p("My name is Noah Dasanaike. I'm a current Junior at Harvard
+                   College studying Government and Data Science, and you can find my 
+                   Github here:"),
+                 a("https://github.com/noahdasanaike", href = "https://github.com/noahdasanaike",
+                   target = "_blank")))
         ))
 )
 
 server <- function(input, output) {
     output$predictModel <- renderPlot({
-        mean <- predictions %>%
-            group_by(year) %>%
-            summarize(standard = mean(standard)) %>%
-            mutate(lag = lag(standard)) %>%
-            mutate(lag_year = lag(year)) %>%
-            mutate(change = ifelse(lag(standard) > standard, "less", "more")) %>%
-            slice(2:21)
-        
-        predictions_graph <- predictions %>%
-            mutate(jitter_year = jitter(year, factor = 1, amount = NULL))
-        
         ggplot() +
             geom_point(data = predictions_graph, aes(x = jitter_year, y = standard), color = "red") +
             gghighlight(year > 2019) +
@@ -214,39 +317,54 @@ server <- function(input, output) {
             theme_bw()
     })
     
-    observeEvent(input$globalPlot_shape_click, {
-        p <- input$globalPlot_shape_click
-        chosenFlag <<- tolower(p$id)
+    output$predictImportance <- renderPlot({
+        filtered_importance %>% 
+            arrange(desc(var)) %>%
+            head(10) %>%
+            ggplot(aes(sqrt_var, x = reorder(name, sqrt_var))) +
+            geom_point(size = 3, colour = "#ff6767") +
+            coord_flip() +
+            labs(x = "Predictors", y = "Importance Scores (Square Root)") +
+            theme_bw() 
     })
     
+    output$predictFit <- renderPrint(
+        fit
+    )
+    
+    output$predictTable <- render_gt(
+        pred_table[rep(row.names(pred_table), pred_table$n), 1:3][, c(1, 3)] %>%
+            rename(Type = type) %>%
+            tbl_summary(by = year )%>% 
+            as_gt()
+    )
+    
     output$flag <- renderPlot({
-        if (is.null(input$globalPlot_shape_click)){
-            tibble(x = 0, y = 1) %>%
-                ggplot() +
-                annotate("text", x = -0.15, y = 0.9, size = 8, label = "Click on a country to view\n more details.") +
-                ylim(0, 1) +
-                xlim(-1, 1) +
-                theme_void()
-        }
-        else{
-            data.frame(image = paste("https://flagcdn.com/w640/",
-                                     chosenFlag,
-                                     ".jpg",
-                                     sep = "")) %>%
-                ggplot(aes(0, 0)) + 
-                geom_image(aes(image = image), nudge_y = 0.1, size = 0.8) +
-                annotate("text", label = countrycode(chosenFlag, origin = "iso2c", 
-                                                     destination = "country.name"), 
-                         x = 0, y = 0.18, size = 10) +
-                annotate("text", label = unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
-                                                                                       destination = "iso3c"))$region), 
-                         x = 0, y = 0.165, size = 6) +
-                theme_void()
-        }
+        req(input$globalPlot_shape_click)
+        
+        p <- input$globalPlot_shape_click
+        chosenFlag <<- tolower(p$id)
+        
+        data.frame(image = paste("https://flagcdn.com/w640/",
+                                 chosenFlag,
+                                 ".jpg",
+                                 sep = "")) %>%
+            ggplot(aes(0, 0)) + 
+            geom_image(aes(image = image), nudge_y = 0.1, size = 0.8) +
+            annotate("text", label = countrycode(chosenFlag, origin = "iso2c", 
+                                                 destination = "country.name"), 
+                     x = 0, y = 0.18, size = 10) +
+            annotate("text", label = unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
+                                                                                   destination = "iso3c"))$region), 
+                     x = 0, y = 0.165, size = 6) +
+            theme_void()
     })
     
     output$timeGraph <- renderPlot({
         req(input$globalPlot_shape_click)
+        
+        p <- input$globalPlot_shape_click
+        chosenFlag <<- tolower(p$id)
         
         region_choice <- unique(subset(eui_subset, ISO3 == countrycode(chosenFlag, origin = "iso2c", 
                                                                 destination = "iso3c"))$region)
@@ -265,11 +383,11 @@ server <- function(input, output) {
         
             ggplot() +
             stat_smooth(geom = "line",  alpha = 0.5, data = filtered, size = 1.8, aes(x = year, y = standard, color = "country"), se = FALSE, span = 1) +
-                geom_point(data = filtered, size = 2, aes(x = year, y = standard)) +
+                geom_point(data = filtered, size = 2, aes(x = year, y = standard, color = "country")) +
             stat_smooth(geom = "line", alpha = 0.5, data = region_mean, size = 1.8, aes(x = year, y = standard, color = "region"), se = FALSE, span = 1) +
-                geom_point(data = region_mean, size = 2, aes(x = year, y = standard)) +
+                geom_point(data = region_mean, size = 2, aes(x = year, y = standard, color = "region")) +
             stat_smooth(geom = "line", alpha = 0.5, data = world_mean, size = 1.8, aes(x = year, y = standard, color = "world"), se = FALSE, span = 1) +
-                geom_point(data = world_mean, size = 2, aes(x = year, y = standard)) +
+                geom_point(data = world_mean, size = 2, aes(x = year, y = standard, color = "world")) +
             theme_bw() +
             labs(x = "Year", y = "Democratic Index") +
             geom_vline(xintercept = as.numeric(input$mapyear), size = 1) +

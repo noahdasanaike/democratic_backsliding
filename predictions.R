@@ -3,10 +3,11 @@ library(countrycode)
 library(mice)
 library(dataPreparation)
 library(glmnet)
-library(countrycode)
 library(splitTools)
 library(ranger)
 library(Metrics)
+library(randomForest)
+library(party)
 
 standardization <- function(x){(x-min(x))/(max(x)-min(x))}
 
@@ -100,7 +101,11 @@ for (i in seq_along(valid_mtry)) {
 
 best_mtry <- which.min(valid_mtry)
 
-final_fit <- ranger(standard ~ ., data = train, mtry = best_mtry)
+final_fit <- ranger(standard ~ ., data = train, mtry = 102, importance = "impurity")
+
+second_fit <- randomForest(standard ~ ., data = train, mtry = 102)
+
+# saveRDS(final_fit, "ranger_fit.RDS")
 test_pred <- predict(final_fit, test)$predictions
 
 predictions <- tibble(data <- keep_real$standard)
