@@ -27,7 +27,7 @@ filtered <- filtered[, !which_are_bijection(filtered, verbose = FALSE), with = F
 
 eui <- readRDS("data/eui_subset.rds") %>%
   rename(iso3 = ISO3) %>%
-  select(iso3, year, standard) %>%
+  dplyr::select(iso3, year, standard) %>%
   group_by(iso3) %>%
   arrange(year) %>%
   group_by(iso3) %>%
@@ -58,22 +58,23 @@ cleaned <- cleaned %>%
 
 data <- cleaned[,2:150] %>%
   arrange(year) %>%
-  select(-c(standard, lag2))
+  dplyr::select(-c(standard, lag2))
 
 inds <- partition(data$lag1, p = c(train = 0.9, test = 0.1), type = "blocked")
 
 # for later
 keep_real <- cleaned[,2:150] %>%
   arrange(year) %>%
-  select(standard, year)
+  dplyr::select(standard, year)
 #
 
 train <- subset(data, year < 2019) %>%
   rename(standard = lag1) %>%
-  select(-c(year, region))
+  dplyr::select(-c(year, region))
+
 test <- subset(data, year == 2019) %>%
   rename(standard = lag1) %>%
-  select(-c(year, region))
+  dplyr::select(-c(year, region))
 
 ## get iso
 
