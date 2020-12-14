@@ -259,7 +259,12 @@ ui <- fluidPage(
                       column(3,
                              selectInput(multiple = TRUE, selected = "Europe & Central Asia", 
                                          "region", "Regions:",
-                                         paste(unique(eui_subset$region)))))
+                                         paste(unique(eui_subset$region)))),
+                      column(3,
+                             br(),
+                             p("Compare democratic index values between two years for countries
+                               in different regions. Coloring is based on whether the change from
+                               one year to another was positive or negative.")))
         ),
         tabPanel("Time Forecasting",
              plotOutput("predictPlot"),
@@ -276,7 +281,13 @@ ui <- fluidPage(
                       column(3, selected = 2,
                              sliderInput("poly", "y polynomial regression:",
                                          min = 1, max = 4,
-                                         value = 2))
+                                         value = 2)),
+                      column(3, br(),
+                             p("Produce forecasts for future democratic index
+                               values using polynomial regression. These are 
+                               somewhat limited in their capability as a 
+                               consequence of being solely based on previous
+                               trends, without taking into account any other factors."))
         )),
         tabPanel("Yearly Comparison",
                  plotOutput("forestPlot"),
@@ -296,10 +307,10 @@ ui <- fluidPage(
                           column(3,
                                  br(),
                                  p("Note that the x-position of the dots is irrelevant 
-                                 and has been added exclusively for viewability."),
-                                 br(),
-                                 p("These points are predictions generated using a Random
-                                   Forest model."))
+                                 and has been added exclusively for viewability. The 
+                                   lines added are equivalent to the mean for each year."),
+                                 p("These points are predictions for each year selected,
+                                 generated using a Random Forest model."))
                           # ,column(5, plotOutput("miniForest"))
                  )),
         tabPanel("n+1 Predictive Modeling",
@@ -343,7 +354,8 @@ ui <- fluidPage(
                  p("This project is intended to measure and track changes in
                    democracy over-time. Variables are taken from the Economist
                    Intelligence Unit, then SVD is performed in order to get a
-                   unidimensional index score. Finally, the values are standardized
+                   unidimensional index score. These categories include pluralism,
+                   civil liberties, and political culture. Finally, the values are standardized
                    in order to produce a value range of 0 to 1. For my n+1 time-series
                    modeling, I downloaded all 539 World Bank Development Indicators across
                    all available years by using the WDI R package."),

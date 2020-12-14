@@ -8,6 +8,9 @@ forests <- tibble(year = 0, rf = 0)
 
 years <- unique(eui_subset$year)
 
+# Loop through each of the years and run a randomForestSRC on each of them
+# in order to produce predicted values one at a time
+
 for (i in 1:length(years)){
   subset <- eui_subset %>%
     filter(year == years[i]) %>%

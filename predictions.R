@@ -9,7 +9,12 @@ library(Metrics)
 library(randomForest)
 library(party)
 
+## This code is used in order to produce predictions for 2020
+
 standardization <- function(x){(x-min(x))/(max(x)-min(x))}
+
+# Read in data from the world bank, which is about 450 different indicator
+# variables. Then, add the ISO3 code and remove constants, doubles, and bijections.
 
 dat <- readRDS("wdi_data.RDS")
 
@@ -23,6 +28,9 @@ filtered <- dat[, !which_are_constant(dat, verbose = FALSE)]
 filtered <- dat[, !which_are_constant(dat, verbose = FALSE), with = FALSE]
 filtered <- filtered[, !which_are_in_double(filtered, verbose = FALSE), with = FALSE]
 filtered <- filtered[, !which_are_bijection(filtered, verbose = FALSE), with = FALSE]
+
+# Filter out 1996 because of an abundance of missing values, then create two
+# lagged variables in accordance with pre-existing forecasting literature.
 
 
 eui <- readRDS("data/eui_subset.rds") %>%
@@ -40,11 +48,18 @@ eui <- readRDS("data/eui_subset.rds") %>%
 merged <- eui %>%
   merge(filtered, by = c("iso3", "year"))
 
+# Remove any variables with completely missing data in order not to impact
+# the imputation.
+
 cleaned <- merged[, -which(colMeans(!is.na(merged)) == 0)]
 
 is.nan.data.frame <- function(x){
   do.call(cbind, lapply(x, is.nan))
 }
+
+# Impute when grouped by year and ISO3; ideally this would be using an imputation
+# package such as MICE or Amelia, but due to computation limitations, I opted
+# for this somewhat faster method.
   
 cleaned <- cleaned %>%
   group_by(year) %>%
@@ -60,13 +75,19 @@ data <- cleaned[,2:150] %>%
   arrange(year) %>%
   dplyr::select(-c(standard, lag2))
 
-inds <- partition(data$lag1, p = c(train = 0.9, test = 0.1), type = "blocked")
+## Create splits of data
 
-# for later
+# These two splits are for adding year and ISO3 values later on.
 keep_real <- cleaned[,2:150] %>%
   arrange(year) %>%
   dplyr::select(standard, year)
+
+test_iso <- cleaned %>%
+  arrange(year)
 #
+
+# Train the data on all years leading up to 2019 in order to create time-series
+# blocking. 
 
 train <- subset(data, year < 2019) %>%
   rename(standard = lag1) %>%
@@ -76,12 +97,9 @@ test <- subset(data, year == 2019) %>%
   rename(standard = lag1) %>%
   dplyr::select(-c(year, region))
 
-## get iso
-
-test_iso <- cleaned %>%
-  arrange(year)
-
-
+# Create time folds and determine the best mtry value for the random forest model;
+# ideally, there would be more timefolds but again this is a limitation of computing
+# power available.
 
 folds <- create_timefolds(train$standard, k = 5)
 
@@ -102,11 +120,17 @@ for (i in seq_along(valid_mtry)) {
 
 best_mtry <- which.min(valid_mtry)
 
-final_fit <- ranger(standard ~ ., data = train, mtry = 102, importance = "impurity")
+# Create the random forest model using the best mtry determined and fit
+# using ranger() for speed and memory efficiency.
 
-second_fit <- randomForest(standard ~ ., data = train, mtry = 102)
-
+final_fit <- ranger(lag1 ~ ., data = train, mtry = best_mtry, 
+                    importance = "impurity")
 # saveRDS(final_fit, "ranger_fit.RDS")
+
+
+# Create 2020 predictions and add the year and iso3 values for presentation
+# on the ShinyApp. Finally, export the resulting data.
+
 test_pred <- predict(final_fit, test)$predictions
 
 predictions <- tibble(data <- keep_real$standard)
@@ -128,14 +152,3 @@ predictions <- predictions %>%
   rename(standard = "data <- keep_real$standard")
 
 # saveRDS(predictions, "predictions.RDS")
-
-test <- subset(predictions, year > 2015)
-x <- seq_along(predictions$standard)
-plot(x, predictions$standard, pch = ".", cex = 2)
-points(tail(x, length(test$standard)), test$standard, col = "red", pch = ".", cex = 2)
-
-predictions %>%
-  mutate(jitter_year = jitter(year, factor = 1, amount = NULL)) %>%
-  ggplot(aes(x = jitter_year, y = standard)) +
-  geom_point(color = "red") +
-  gghighlight(year > 2019)
